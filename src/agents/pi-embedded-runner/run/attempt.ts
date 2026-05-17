@@ -491,6 +491,36 @@ function summarizeSessionContext(messages: AgentMessage[]): {
   };
 }
 
+function buildRedactedAttemptContextMetrics(params: {
+  messages: AgentMessage[];
+  prePromptMessageCount: number;
+}): EmbeddedRunAttemptResult["contextMetrics"] {
+  const priorCount = Math.max(
+    0,
+    Math.min(params.messages.length, Math.floor(params.prePromptMessageCount)),
+  );
+  const metrics = {
+    sessionMessageCount: params.messages.length,
+    sessionPriorUserMessageCount: 0,
+    sessionPriorUserMessageChars: 0,
+    sessionPriorAssistantMessageCount: 0,
+    sessionPriorAssistantMessageChars: 0,
+  };
+
+  for (const msg of params.messages.slice(0, priorCount)) {
+    const payload = summarizeMessagePayload(msg);
+    if (msg.role === "user") {
+      metrics.sessionPriorUserMessageCount++;
+      metrics.sessionPriorUserMessageChars += payload.textChars;
+    } else if (msg.role === "assistant") {
+      metrics.sessionPriorAssistantMessageCount++;
+      metrics.sessionPriorAssistantMessageChars += payload.textChars;
+    }
+  }
+
+  return metrics;
+}
+
 export function applyEmbeddedAttemptToolsAllow<T extends { name: string }>(
   tools: T[],
   toolsAllow?: string[],
@@ -3614,6 +3644,10 @@ export async function runEmbeddedAttempt(
         bootstrapPromptWarningSignaturesSeen: bootstrapPromptWarning.warningSignaturesSeen,
         bootstrapPromptWarningSignature: bootstrapPromptWarning.signature,
         systemPromptReport,
+        contextMetrics: buildRedactedAttemptContextMetrics({
+          messages: messagesSnapshot,
+          prePromptMessageCount,
+        }),
         finalPromptText,
         messagesSnapshot,
         assistantTexts,

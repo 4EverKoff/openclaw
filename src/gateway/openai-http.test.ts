@@ -93,6 +93,92 @@ function parseSseDataLines(text: string): string[] {
     .map((line) => line.slice("data: ".length));
 }
 
+const CONTEXT_METRICS_LEAK_SENTINELS = [
+  "SECRET_SESSION_SHOULD_NOT_LEAK",
+  "SECRET_SESSION_ID_SHOULD_NOT_LEAK",
+  "SECRET_PATH_SHOULD_NOT_LEAK",
+  "SECRET_TOKEN_SHOULD_NOT_LEAK",
+  "SECRET_SKILL_PROMPT_SHOULD_NOT_LEAK",
+  "SECRET_BASE64_SHOULD_NOT_LEAK",
+  "secret-provider",
+  "secret-model",
+  "data:image/png;base64",
+  "/Users/koff/OpenClawShare/workspace/agents/investigator",
+];
+
+function buildContextMetricsAgentResult(text = "metadata ok") {
+  return {
+    payloads: [{ text }],
+    meta: {
+      agentMeta: {
+        contextTokens: 272_000,
+        usage: { input: 12, output: 5, total: 17 },
+      },
+      contextMetrics: {
+        sessionFileBytes: 4096,
+        sessionMessageCount: 8,
+        sessionPriorUserMessageCount: 3,
+        sessionPriorUserMessageChars: 1234,
+        sessionPriorAssistantMessageCount: 2,
+        sessionPriorAssistantMessageChars: 567,
+      },
+      systemPromptReport: {
+        generatedAt: 123,
+        sessionId: "SECRET_SESSION_ID_SHOULD_NOT_LEAK",
+        sessionKey: "SECRET_SESSION_SHOULD_NOT_LEAK",
+        provider: "secret-provider",
+        model: "secret-model",
+        workspaceDir: "/Users/koff/OpenClawShare/workspace/agents/investigator",
+        injectedWorkspaceFiles: [
+          {
+            name: "AGENTS.md",
+            path: "/Users/koff/SECRET_PATH_SHOULD_NOT_LEAK/AGENTS.md",
+            rawChars: 100,
+            injectedChars: 80,
+            truncated: false,
+          },
+          {
+            name: "MEMORY.md",
+            path: "/Users/koff/SECRET_PATH_SHOULD_NOT_LEAK/MEMORY.md",
+            rawChars: 50,
+            injectedChars: 25,
+            truncated: true,
+          },
+        ],
+        tools: {
+          schemaChars: 321,
+          entries: [
+            {
+              name: "secret-tool",
+              summaryChars: 1,
+              schemaChars: 321,
+              schema: "Authorization: Bearer SECRET_TOKEN_SHOULD_NOT_LEAK",
+            },
+          ],
+        },
+        skills: {
+          promptChars: 654,
+          entries: [
+            {
+              name: "secret-skill",
+              blockChars: 654,
+              prompt: "SECRET_SKILL_PROMPT_SHOULD_NOT_LEAK",
+            },
+          ],
+        },
+        image: "data:image/png;base64,SECRET_BASE64_SHOULD_NOT_LEAK",
+      },
+    },
+  };
+}
+
+function expectNoContextMetricsLeak(value: unknown) {
+  const serialized = typeof value === "string" ? value : JSON.stringify(value);
+  for (const sentinel of CONTEXT_METRICS_LEAK_SENTINELS) {
+    expect(serialized).not.toContain(sentinel);
+  }
+}
+
 describe("OpenAI-compatible HTTP API (e2e)", () => {
   it("handles request validation and routing", async () => {
     const port = enabledPort;
@@ -914,6 +1000,65 @@ describe("OpenAI-compatible HTTP API (e2e)", () => {
     );
   });
 
+  it("adds redacted contextMetrics to non-stream responses without changing usage or choices", async () => {
+    const port = enabledPort;
+    agentCommand.mockClear();
+    agentCommand.mockResolvedValueOnce(buildContextMetricsAgentResult("metadata ok") as never);
+
+    const res = await postChatCompletions(port, {
+      stream: false,
+      model: "openclaw",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(res.status).toBe(200);
+
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.usage).toEqual({
+      prompt_tokens: 12,
+      completion_tokens: 5,
+      total_tokens: 17,
+    });
+    const choice0 = (json.choices as Array<Record<string, unknown>>)[0] ?? {};
+    const message = (choice0.message as Record<string, unknown> | undefined) ?? {};
+    expect(message).toEqual({ role: "assistant", content: "metadata ok" });
+
+    const metadata = json.metadata as Record<string, unknown>;
+    expect(metadata).toMatchObject({
+      contextMetrics: {
+        contextTokens: 272_000,
+        systemPromptReportPresent: true,
+        bootstrapInjectedChars: 105,
+        bootstrapRawChars: 150,
+        bootstrapFileCount: 2,
+        bootstrapTruncatedFileCount: 1,
+        toolsSchemaChars: 321,
+        toolsCount: 1,
+        skillsPromptChars: 654,
+        skillsCount: 1,
+        sessionFileBytes: 4096,
+        sessionMessageCount: 8,
+        sessionPriorUserMessageCount: 3,
+        sessionPriorUserMessageChars: 1234,
+        sessionPriorAssistantMessageCount: 2,
+        sessionPriorAssistantMessageChars: 567,
+      },
+      systemPromptReport: {
+        bootstrap: {
+          injectedChars: 105,
+          rawChars: 150,
+          fileCount: 2,
+          truncatedFileCount: 1,
+        },
+        tools: { schemaChars: 321, count: 1 },
+        skills: { promptChars: 654, count: 1 },
+      },
+      contextTokens: 272_000,
+      sessionFileBytes: 4096,
+      sessionMessageCount: 8,
+    });
+    expectNoContextMetricsLeak(json);
+  });
+
   it("streams SSE chunks when stream=true", async () => {
     const port = enabledPort;
     try {
@@ -1075,6 +1220,76 @@ describe("OpenAI-compatible HTTP API (e2e)", () => {
     expect(usageChunk?.choices).toEqual([]);
   });
 
+  it("adds redacted contextMetrics to the final stream usage chunk", async () => {
+    const port = enabledPort;
+    agentCommand.mockClear();
+    agentCommand.mockImplementationOnce((async (opts: unknown) => {
+      const runId = (opts as { runId?: string } | undefined)?.runId ?? "";
+      emitAgentEvent({ runId, stream: "assistant", data: { delta: "meta" } });
+      return buildContextMetricsAgentResult("meta");
+    }) as never);
+
+    const res = await postChatCompletions(port, {
+      stream: true,
+      stream_options: { include_usage: true },
+      model: "openclaw",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(res.status).toBe(200);
+
+    const text = await res.text();
+    const data = parseSseDataLines(text);
+    expect(data[data.length - 1]).toBe("[DONE]");
+    const jsonChunks = data
+      .filter((d) => d !== "[DONE]")
+      .map((d) => JSON.parse(d) as Record<string, unknown>);
+    const content = jsonChunks
+      .flatMap((chunk) => (chunk.choices as Array<Record<string, unknown>> | undefined) ?? [])
+      .map((choice) => (choice.delta as Record<string, unknown> | undefined)?.content)
+      .filter((value): value is string => typeof value === "string")
+      .join("");
+    expect(content).toBe("meta");
+
+    const usageChunk = jsonChunks.find((chunk) => "usage" in chunk);
+    expect(usageChunk?.usage).toEqual({
+      prompt_tokens: 12,
+      completion_tokens: 5,
+      total_tokens: 17,
+    });
+    expect(usageChunk?.choices).toEqual([]);
+    expect(usageChunk?.metadata).toMatchObject({
+      contextMetrics: {
+        contextTokens: 272_000,
+        systemPromptReportPresent: true,
+        bootstrapInjectedChars: 105,
+        bootstrapRawChars: 150,
+        bootstrapFileCount: 2,
+        bootstrapTruncatedFileCount: 1,
+        toolsSchemaChars: 321,
+        toolsCount: 1,
+        skillsPromptChars: 654,
+        skillsCount: 1,
+        sessionFileBytes: 4096,
+        sessionMessageCount: 8,
+        sessionPriorUserMessageCount: 3,
+        sessionPriorUserMessageChars: 1234,
+        sessionPriorAssistantMessageCount: 2,
+        sessionPriorAssistantMessageChars: 567,
+      },
+      systemPromptReport: {
+        bootstrap: {
+          injectedChars: 105,
+          rawChars: 150,
+          fileCount: 2,
+          truncatedFileCount: 1,
+        },
+        tools: { schemaChars: 321, count: 1 },
+        skills: { promptChars: 654, count: 1 },
+      },
+    });
+    expectNoContextMetricsLeak(text);
+  });
+
   it("keeps aggregate-only usage total in final stream usage chunk", async () => {
     const port = enabledPort;
     agentCommand.mockClear();
@@ -1113,6 +1328,45 @@ describe("OpenAI-compatible HTTP API (e2e)", () => {
       completion_tokens: 0,
       total_tokens: 123,
     });
+  });
+
+  it("keeps stream usage valid when context metrics are missing", async () => {
+    const port = enabledPort;
+    agentCommand.mockClear();
+    agentCommand.mockImplementationOnce((async (opts: unknown) => {
+      const runId = (opts as { runId?: string } | undefined)?.runId ?? "";
+      emitAgentEvent({ runId, stream: "assistant", data: { delta: "hello" } });
+      return {
+        payloads: [{ text: "hello" }],
+        meta: {
+          agentMeta: {
+            usage: { input: 7, output: 3, total: 10 },
+          },
+        },
+      };
+    }) as never);
+
+    const res = await postChatCompletions(port, {
+      stream: true,
+      stream_options: { include_usage: true },
+      model: "openclaw",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(res.status).toBe(200);
+
+    const text = await res.text();
+    const data = parseSseDataLines(text);
+    expect(data[data.length - 1]).toBe("[DONE]");
+    const jsonChunks = data
+      .filter((d) => d !== "[DONE]")
+      .map((d) => JSON.parse(d) as Record<string, unknown>);
+    const usageChunk = jsonChunks.find((chunk) => "usage" in chunk);
+    expect(usageChunk?.usage).toEqual({
+      prompt_tokens: 7,
+      completion_tokens: 3,
+      total_tokens: 10,
+    });
+    expect(usageChunk?.metadata).toBeUndefined();
   });
 
   it("finalizes stream when lifecycle end arrives before usage is available", async () => {

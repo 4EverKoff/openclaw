@@ -49,6 +49,14 @@ export type EmbeddedPiAgentMeta = {
   };
 };
 
+export type EmbeddedRunContextMetrics = {
+  sessionMessageCount?: number;
+  sessionPriorUserMessageCount?: number;
+  sessionPriorUserMessageChars?: number;
+  sessionPriorAssistantMessageCount?: number;
+  sessionPriorAssistantMessageChars?: number;
+};
+
 export type TraceAttempt = {
   provider: string;
   model: string;
@@ -124,6 +132,7 @@ export type EmbeddedRunFailureSignal = {
 export type EmbeddedPiRunMeta = {
   durationMs: number;
   agentMeta?: EmbeddedPiAgentMeta;
+  contextMetrics?: EmbeddedRunContextMetrics;
   aborted?: boolean;
   systemPromptReport?: SessionSystemPromptReport;
   finalPromptText?: string;

@@ -193,6 +193,7 @@ function writeUsageChunk(
     runId: string;
     model: string;
     usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    metadata?: OpenAiResponseMetadata;
   },
 ) {
   writeSse(res, {
@@ -202,6 +203,7 @@ function writeUsageChunk(
     model: params.model,
     choices: [],
     usage: params.usage,
+    ...(params.metadata ? { metadata: params.metadata } : {}),
   });
 }
 
@@ -371,10 +373,321 @@ async function resolveImagesForRequest(
   return images;
 }
 
+type RedactedSystemPromptReport = {
+  bootstrap?: {
+    injectedChars?: number;
+    rawChars?: number;
+    fileCount?: number;
+    truncatedFileCount?: number;
+  };
+  tools?: {
+    schemaChars?: number;
+    count?: number;
+  };
+  skills?: {
+    promptChars?: number;
+    count?: number;
+  };
+};
+
+type OpenAiContextMetrics = {
+  contextTokens?: number;
+  systemPromptReportPresent: boolean;
+  bootstrapInjectedChars?: number;
+  bootstrapRawChars?: number;
+  bootstrapFileCount?: number;
+  bootstrapTruncatedFileCount?: number;
+  toolsSchemaChars?: number;
+  toolsCount?: number;
+  skillsPromptChars?: number;
+  skillsCount?: number;
+  sessionFileBytes?: number;
+  sessionMessageCount?: number;
+  sessionPriorUserMessageCount?: number;
+  sessionPriorUserMessageChars?: number;
+  sessionPriorAssistantMessageCount?: number;
+  sessionPriorAssistantMessageChars?: number;
+};
+
+type OpenAiResponseMetadata = {
+  contextMetrics: OpenAiContextMetrics;
+  systemPromptReport?: RedactedSystemPromptReport;
+  contextTokens?: number;
+  sessionFileBytes?: number;
+  sessionMessageCount?: number;
+  sessionPriorUserMessageCount?: number;
+  sessionPriorUserMessageChars?: number;
+  sessionPriorAssistantMessageCount?: number;
+  sessionPriorAssistantMessageChars?: number;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function asArray(value: unknown): unknown[] | undefined {
+  return Array.isArray(value) ? value : undefined;
+}
+
+function readNonNegativeInteger(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return undefined;
+  }
+  return Math.floor(value);
+}
+
+function firstIntegerFromRecord(
+  record: Record<string, unknown> | undefined,
+  keys: string[],
+): number | undefined {
+  if (!record) {
+    return undefined;
+  }
+  for (const key of keys) {
+    const value = readNonNegativeInteger(record[key]);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function countArray(value: unknown): number | undefined {
+  return Array.isArray(value) ? value.length : undefined;
+}
+
+function sumArrayIntegerField(items: unknown[] | undefined, keys: string[]): number | undefined {
+  if (!items) {
+    return undefined;
+  }
+  let total = 0;
+  let found = false;
+  for (const item of items) {
+    const record = asRecord(item);
+    const value = firstIntegerFromRecord(record, keys);
+    if (value === undefined) {
+      continue;
+    }
+    total += value;
+    found = true;
+  }
+  return found ? total : undefined;
+}
+
+function countTruthyArrayField(items: unknown[] | undefined, key: string): number | undefined {
+  if (!items) {
+    return undefined;
+  }
+  return items.filter((item) => Boolean(asRecord(item)?.[key])).length;
+}
+
+function hasKeys(value: object): boolean {
+  return Object.keys(value).length > 0;
+}
+
+function buildRedactedSystemPromptReport(report: unknown): RedactedSystemPromptReport | undefined {
+  const reportRecord = asRecord(report);
+  if (!reportRecord) {
+    return undefined;
+  }
+
+  const injectedWorkspaceFiles = asArray(reportRecord.injectedWorkspaceFiles);
+  const bootstrapRecord = asRecord(reportRecord.bootstrap);
+  const toolsRecord = asRecord(reportRecord.tools);
+  const skillsRecord = asRecord(reportRecord.skills);
+
+  const bootstrap: NonNullable<RedactedSystemPromptReport["bootstrap"]> = {};
+  const bootstrapInjectedChars =
+    firstIntegerFromRecord(bootstrapRecord, ["injectedChars", "injected_chars"]) ??
+    sumArrayIntegerField(injectedWorkspaceFiles, ["injectedChars", "injected_chars"]);
+  const bootstrapRawChars =
+    firstIntegerFromRecord(bootstrapRecord, ["rawChars", "raw_chars"]) ??
+    sumArrayIntegerField(injectedWorkspaceFiles, ["rawChars", "raw_chars"]);
+  const bootstrapFileCount =
+    firstIntegerFromRecord(bootstrapRecord, ["fileCount", "file_count"]) ??
+    countArray(injectedWorkspaceFiles);
+  const bootstrapTruncatedFileCount =
+    firstIntegerFromRecord(bootstrapRecord, ["truncatedFileCount", "truncated_file_count"]) ??
+    countTruthyArrayField(injectedWorkspaceFiles, "truncated");
+  if (bootstrapInjectedChars !== undefined) {
+    bootstrap.injectedChars = bootstrapInjectedChars;
+  }
+  if (bootstrapRawChars !== undefined) {
+    bootstrap.rawChars = bootstrapRawChars;
+  }
+  if (bootstrapFileCount !== undefined) {
+    bootstrap.fileCount = bootstrapFileCount;
+  }
+  if (bootstrapTruncatedFileCount !== undefined) {
+    bootstrap.truncatedFileCount = bootstrapTruncatedFileCount;
+  }
+
+  const tools: NonNullable<RedactedSystemPromptReport["tools"]> = {};
+  const toolsSchemaChars = firstIntegerFromRecord(toolsRecord, ["schemaChars", "schema_chars"]);
+  const toolsCount =
+    firstIntegerFromRecord(toolsRecord, ["count"]) ?? countArray(toolsRecord?.entries);
+  if (toolsSchemaChars !== undefined) {
+    tools.schemaChars = toolsSchemaChars;
+  }
+  if (toolsCount !== undefined) {
+    tools.count = toolsCount;
+  }
+
+  const skills: NonNullable<RedactedSystemPromptReport["skills"]> = {};
+  const skillsPromptChars = firstIntegerFromRecord(skillsRecord, ["promptChars", "prompt_chars"]);
+  const skillsCount =
+    firstIntegerFromRecord(skillsRecord, ["count"]) ?? countArray(skillsRecord?.entries);
+  if (skillsPromptChars !== undefined) {
+    skills.promptChars = skillsPromptChars;
+  }
+  if (skillsCount !== undefined) {
+    skills.count = skillsCount;
+  }
+
+  const redacted: RedactedSystemPromptReport = {};
+  if (hasKeys(bootstrap)) {
+    redacted.bootstrap = bootstrap;
+  }
+  if (hasKeys(tools)) {
+    redacted.tools = tools;
+  }
+  if (hasKeys(skills)) {
+    redacted.skills = skills;
+  }
+  return redacted;
+}
+
+function buildOpenAiResponseMetadata(result: unknown): OpenAiResponseMetadata | undefined {
+  const meta = asRecord((result as { meta?: unknown } | null)?.meta);
+  const agentMeta = asRecord(meta?.agentMeta);
+  const reportRecord = asRecord(meta?.systemPromptReport);
+  const runtimeMetrics =
+    asRecord(meta?.contextMetrics) ?? asRecord(meta?.context_metrics) ?? undefined;
+  const contextTokens = firstIntegerFromRecord(agentMeta, ["contextTokens", "context_tokens"]);
+  const redactedReport = buildRedactedSystemPromptReport(reportRecord);
+
+  const sessionFileBytes = firstIntegerFromRecord(runtimeMetrics, [
+    "sessionFileBytes",
+    "session_file_bytes",
+  ]);
+  const sessionMessageCount = firstIntegerFromRecord(runtimeMetrics, [
+    "sessionMessageCount",
+    "session_message_count",
+  ]);
+  const sessionPriorUserMessageCount = firstIntegerFromRecord(runtimeMetrics, [
+    "sessionPriorUserMessageCount",
+    "session_prior_user_message_count",
+  ]);
+  const sessionPriorUserMessageChars = firstIntegerFromRecord(runtimeMetrics, [
+    "sessionPriorUserMessageChars",
+    "session_prior_user_message_chars",
+  ]);
+  const sessionPriorAssistantMessageCount = firstIntegerFromRecord(runtimeMetrics, [
+    "sessionPriorAssistantMessageCount",
+    "session_prior_assistant_message_count",
+  ]);
+  const sessionPriorAssistantMessageChars = firstIntegerFromRecord(runtimeMetrics, [
+    "sessionPriorAssistantMessageChars",
+    "session_prior_assistant_message_chars",
+  ]);
+
+  const hasAnySignal =
+    Boolean(reportRecord) ||
+    contextTokens !== undefined ||
+    sessionFileBytes !== undefined ||
+    sessionMessageCount !== undefined ||
+    sessionPriorUserMessageCount !== undefined ||
+    sessionPriorUserMessageChars !== undefined ||
+    sessionPriorAssistantMessageCount !== undefined ||
+    sessionPriorAssistantMessageChars !== undefined;
+  if (!hasAnySignal) {
+    return undefined;
+  }
+
+  const contextMetrics: OpenAiContextMetrics = {
+    systemPromptReportPresent: Boolean(reportRecord),
+  };
+  if (contextTokens !== undefined) {
+    contextMetrics.contextTokens = contextTokens;
+  }
+  if (redactedReport?.bootstrap?.injectedChars !== undefined) {
+    contextMetrics.bootstrapInjectedChars = redactedReport.bootstrap.injectedChars;
+  }
+  if (redactedReport?.bootstrap?.rawChars !== undefined) {
+    contextMetrics.bootstrapRawChars = redactedReport.bootstrap.rawChars;
+  }
+  if (redactedReport?.bootstrap?.fileCount !== undefined) {
+    contextMetrics.bootstrapFileCount = redactedReport.bootstrap.fileCount;
+  }
+  if (redactedReport?.bootstrap?.truncatedFileCount !== undefined) {
+    contextMetrics.bootstrapTruncatedFileCount = redactedReport.bootstrap.truncatedFileCount;
+  }
+  if (redactedReport?.tools?.schemaChars !== undefined) {
+    contextMetrics.toolsSchemaChars = redactedReport.tools.schemaChars;
+  }
+  if (redactedReport?.tools?.count !== undefined) {
+    contextMetrics.toolsCount = redactedReport.tools.count;
+  }
+  if (redactedReport?.skills?.promptChars !== undefined) {
+    contextMetrics.skillsPromptChars = redactedReport.skills.promptChars;
+  }
+  if (redactedReport?.skills?.count !== undefined) {
+    contextMetrics.skillsCount = redactedReport.skills.count;
+  }
+  if (sessionFileBytes !== undefined) {
+    contextMetrics.sessionFileBytes = sessionFileBytes;
+  }
+  if (sessionMessageCount !== undefined) {
+    contextMetrics.sessionMessageCount = sessionMessageCount;
+  }
+  if (sessionPriorUserMessageCount !== undefined) {
+    contextMetrics.sessionPriorUserMessageCount = sessionPriorUserMessageCount;
+  }
+  if (sessionPriorUserMessageChars !== undefined) {
+    contextMetrics.sessionPriorUserMessageChars = sessionPriorUserMessageChars;
+  }
+  if (sessionPriorAssistantMessageCount !== undefined) {
+    contextMetrics.sessionPriorAssistantMessageCount = sessionPriorAssistantMessageCount;
+  }
+  if (sessionPriorAssistantMessageChars !== undefined) {
+    contextMetrics.sessionPriorAssistantMessageChars = sessionPriorAssistantMessageChars;
+  }
+
+  const metadata: OpenAiResponseMetadata = { contextMetrics };
+  if (redactedReport && hasKeys(redactedReport)) {
+    metadata.systemPromptReport = redactedReport;
+  }
+  if (contextTokens !== undefined) {
+    metadata.contextTokens = contextTokens;
+  }
+  if (sessionFileBytes !== undefined) {
+    metadata.sessionFileBytes = sessionFileBytes;
+  }
+  if (sessionMessageCount !== undefined) {
+    metadata.sessionMessageCount = sessionMessageCount;
+  }
+  if (sessionPriorUserMessageCount !== undefined) {
+    metadata.sessionPriorUserMessageCount = sessionPriorUserMessageCount;
+  }
+  if (sessionPriorUserMessageChars !== undefined) {
+    metadata.sessionPriorUserMessageChars = sessionPriorUserMessageChars;
+  }
+  if (sessionPriorAssistantMessageCount !== undefined) {
+    metadata.sessionPriorAssistantMessageCount = sessionPriorAssistantMessageCount;
+  }
+  if (sessionPriorAssistantMessageChars !== undefined) {
+    metadata.sessionPriorAssistantMessageChars = sessionPriorAssistantMessageChars;
+  }
+  return metadata;
+}
+
 export const __testOnlyOpenAiHttp = {
   resolveImagesForRequest,
   resolveOpenAiChatCompletionsLimits,
   resolveChatCompletionUsage,
+  buildOpenAiResponseMetadata,
 };
 
 function buildAgentPrompt(
@@ -619,6 +932,7 @@ export async function handleOpenAiHttpRequest(
 
       const content = resolveAgentResponseText(result);
       const usage = resolveChatCompletionUsage(result);
+      const metadata = buildOpenAiResponseMetadata(result);
 
       sendJson(res, 200, {
         id: runId,
@@ -633,6 +947,7 @@ export async function handleOpenAiHttpRequest(
           },
         ],
         usage,
+        ...(metadata ? { metadata } : {}),
       });
     } catch (err) {
       if (abortController.signal.aborted) {
@@ -660,6 +975,7 @@ export async function handleOpenAiHttpRequest(
         total_tokens: number;
       }
     | undefined;
+  let finalMetadata: OpenAiResponseMetadata | undefined;
   let finalizeRequested = false;
   let closed = false;
   let stopWatchingDisconnect = () => {};
@@ -679,7 +995,12 @@ export async function handleOpenAiHttpRequest(
       wroteStopChunk = true;
     }
     if (streamIncludeUsage && finalUsage) {
-      writeUsageChunk(res, { runId, model, usage: finalUsage });
+      writeUsageChunk(res, {
+        runId,
+        model,
+        usage: finalUsage,
+        ...(finalMetadata ? { metadata: finalMetadata } : {}),
+      });
     }
     writeDone(res);
     res.end();
@@ -741,6 +1062,7 @@ export async function handleOpenAiHttpRequest(
       }
 
       finalUsage = resolveChatCompletionUsage(result);
+      finalMetadata = buildOpenAiResponseMetadata(result);
 
       if (!sawAssistantDelta) {
         if (!wroteRole) {
