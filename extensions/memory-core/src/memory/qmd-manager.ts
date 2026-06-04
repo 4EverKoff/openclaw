@@ -2200,7 +2200,6 @@ export class QmdMemoryManager implements MemorySearchManager {
     if (
       useUnifiedQueryTool &&
       params.searchCommand === "query" &&
-      !params.explicitToolOverride &&
       this.qmd.searchMode === "query" &&
       this.qmd.rerank === false
     ) {
