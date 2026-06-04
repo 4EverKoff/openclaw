@@ -205,7 +205,14 @@ function limitTrajectoryPayloadValue(
   const keys = Object.keys(record);
   const limited: Record<string, unknown> = {};
   for (const key of keys.slice(0, TRAJECTORY_RUNTIME_DATA_OBJECT_MAX_KEYS)) {
-    limited[key] = limitTrajectoryPayloadValue(record[key], depth + 1, seen);
+    let childValue: unknown;
+    try {
+      childValue = record[key];
+    } catch {
+      limited[key] = truncatedTrajectoryValue("trajectory-field-unreadable");
+      continue;
+    }
+    limited[key] = limitTrajectoryPayloadValue(childValue, depth + 1, seen);
   }
   if (keys.length > TRAJECTORY_RUNTIME_DATA_OBJECT_MAX_KEYS) {
     limited["_truncated"] = truncatedTrajectoryValue("trajectory-object-size-limit", {
@@ -222,6 +229,16 @@ function sanitizeTrajectoryPayload(data: Record<string, unknown>): Record<string
     string,
     unknown
   >;
+}
+
+function readTrajectoryToolParameters(tool: {
+  parameters?: unknown;
+}): unknown {
+  try {
+    return tool.parameters;
+  } catch {
+    return truncatedTrajectoryValue("trajectory-tool-parameters-unreadable");
+  }
 }
 
 function describeTrajectoryWriterFlushState(writer: TrajectoryRuntimeWriter): string | undefined {
@@ -467,7 +484,9 @@ export function toTrajectoryToolDefinitions(
         {
           name,
           description: tool.description,
-          parameters: sanitizeDiagnosticPayload(limitTrajectoryPayloadValue(tool.parameters)),
+          parameters: sanitizeDiagnosticPayload(
+            limitTrajectoryPayloadValue(readTrajectoryToolParameters(tool)),
+          ),
         },
       ];
     })

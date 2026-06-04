@@ -105,6 +105,51 @@ describe("trajectory runtime", () => {
     expect(JSON.stringify(parsed.data)).not.toContain("abcd-efgh-ijkl-mnop");
   });
 
+  it("keeps trajectory tool definitions when schema accessors throw", () => {
+    const unreadableTool = {
+      name: "unreadable",
+      description: "bad getter",
+    };
+    Object.defineProperty(unreadableTool, "parameters", {
+      get() {
+        throw new Error("parameters getter exploded");
+      },
+    });
+    const nestedSchema = { type: "object" };
+    Object.defineProperty(nestedSchema, "properties", {
+      get() {
+        throw new Error("properties getter exploded");
+      },
+      enumerable: true,
+    });
+
+    expect(
+      toTrajectoryToolDefinitions([
+        unreadableTool,
+        { name: "nested", description: "nested getter", parameters: nestedSchema },
+        { name: "healthy", parameters: { type: "object", properties: { value: {} } } },
+      ]),
+    ).toEqual([
+      {
+        name: "healthy",
+        parameters: { type: "object", properties: { value: {} } },
+      },
+      {
+        name: "nested",
+        description: "nested getter",
+        parameters: {
+          type: "object",
+          properties: { truncated: true, reason: "trajectory-field-unreadable" },
+        },
+      },
+      {
+        name: "unreadable",
+        description: "bad getter",
+        parameters: { truncated: true, reason: "trajectory-tool-parameters-unreadable" },
+      },
+    ]);
+  });
+
   it("bounds large runtime event fields before serialization", () => {
     const writes: string[] = [];
     const recorder = createTrajectoryRuntimeRecorder({
