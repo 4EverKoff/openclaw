@@ -30,6 +30,7 @@ import type {
   SecurityAuditSummary,
 } from "./audit.types.js";
 import { collectEnabledInsecureOrDangerousFlags } from "./dangerous-config-flags.js";
+import { isEgressApprovalConfigured } from "./egress-approval-password.js";
 import type { ExecFn } from "./windows-acl.js";
 
 type ExecDockerRawFn = typeof import("../agents/sandbox/docker.js").execDockerRaw;
@@ -476,6 +477,44 @@ export function collectElevatedFindings(cfg: OpenClawConfig): SecurityAuditFindi
         detail: `tools.elevated.allowFrom.${provider} has ${normalized.length} entries; consider tightening elevated access.`,
       });
     }
+  }
+
+  return findings;
+}
+
+export function collectGlobalEgressGateFindings(params: {
+  cfg: OpenClawConfig;
+  env?: NodeJS.ProcessEnv;
+}): SecurityAuditFinding[] {
+  const findings: SecurityAuditFinding[] = [];
+  const passwordFile = params.env?.OPENCLAW_EGRESS_APPROVAL_PASSWORD_FILE;
+  if (!isEgressApprovalConfigured(passwordFile)) {
+    findings.push({
+      checkId: "global_egress_gate.password_missing",
+      severity: "warn",
+      title: "Egress approval password is not configured",
+      detail:
+        "Trusted direct external-send and dangerous-action tool calls will not require local password approval because the egress approval password hash file is missing.",
+      remediation:
+        "Configure a local egress approval password hash at ~/.openclaw/security/egress-approval-password.json before enabling external sends or dangerous actions.",
+    });
+  }
+
+  const pluginsConfig = params.cfg.plugins;
+  const pluginsEnabled = pluginsConfig?.enabled !== false;
+  const allow = Array.isArray(pluginsConfig?.allow)
+    ? pluginsConfig.allow.map((entry) => String(entry).trim()).filter(Boolean)
+    : [];
+  if (pluginsEnabled && allow.length === 0) {
+    findings.push({
+      checkId: "global_egress_gate.plugins_allow_missing",
+      severity: "warn",
+      title: "Plugin allowlist is not configured for the egress gate",
+      detail:
+        "plugins.allow is empty or unset. The global egress gate only treats plugin/MCP tools outside an explicit allowlist as untrusted, so unallowlisted plugin tools may be treated as trusted.",
+      remediation:
+        "Set plugins.allow to the reviewed plugin ids you trust, and keep unknown plugins/MCP bundles outside that allowlist.",
+    });
   }
 
   return findings;
@@ -968,6 +1007,7 @@ export async function runSecurityAudit(opts: SecurityAuditOptions): Promise<Secu
   findings.push(...collectLoggingFindings(cfg));
   findings.push(...collectElevatedFindings(cfg));
   findings.push(...collectExecRuntimeFindings(cfg));
+  findings.push(...collectGlobalEgressGateFindings({ cfg, env }));
   findings.push(...auditNonDeep.collectHooksHardeningFindings(cfg, env));
   findings.push(...auditNonDeep.collectGatewayHttpNoAuthFindings(cfg, env));
   findings.push(...auditNonDeep.collectGatewayHttpSessionKeyOverrideFindings(cfg));
