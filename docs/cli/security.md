@@ -13,6 +13,7 @@ Security tools (audit + optional fixes).
 Related:
 
 - Security guide: [Security](/gateway/security)
+- Global egress gate: [Global egress gate](/security/global-egress-gate)
 
 ## Audit
 
@@ -49,6 +50,32 @@ SecretRef behavior:
 - `security audit` resolves supported SecretRefs in read-only mode for its targeted paths.
 - If a SecretRef is unavailable in the current command path, audit continues and reports `secretDiagnostics` (instead of crashing).
 - `--token` and `--password` only override deep-probe auth for that command invocation; they do not rewrite config or SecretRef mappings.
+
+## Egress Approval
+
+Approve or deny a pending password-gated egress request from a trusted local terminal:
+
+```bash
+openclaw security egress-approval approve
+openclaw security egress-approval approve ~/.openclaw/security/egress-approval-requests/<id>.json
+openclaw security egress-approval deny ~/.openclaw/security/egress-approval-requests/<id>.json
+openclaw security egress-approval approve --json
+```
+
+`approve` prompts for the local egress approval password and verifies it against:
+
+```text
+~/.openclaw/security/egress-approval-password.json
+```
+
+If no request file is passed, OpenClaw selects the newest pending request in:
+
+```text
+~/.openclaw/security/egress-approval-requests/
+```
+
+Use `--password-file <path>` or `--requests-dir <path>` only for tests or non-default local deployments.
+Do not pass the approval password as a CLI argument or store it in config.
 
 ## JSON output
 

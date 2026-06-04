@@ -15,13 +15,18 @@ import {
 import type { SessionState } from "../logging/diagnostic-session-state.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
-import { copyPluginToolMeta } from "../plugins/tools.js";
+import { copyPluginToolMeta, getPluginToolMeta } from "../plugins/tools.js";
 import { runTrustedToolPolicies } from "../plugins/trusted-tool-policy.js";
 import {
   PluginApprovalResolutions,
   type PluginApprovalResolution,
   type PluginHookBeforeToolCallResult,
 } from "../plugins/types.js";
+import { requestEgressApprovalPassword } from "../security/egress-approval-password.js";
+import {
+  decideGlobalEgressGate,
+  type GlobalEgressGateOrigin,
+} from "../security/global-egress-gate.js";
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
 import { isPlainObject } from "../utils.js";
 import { copyChannelAgentToolMeta } from "./channel-tools.js";
@@ -37,10 +42,20 @@ export type HookContext = {
   runId?: string;
   trace?: DiagnosticTraceContext;
   loopDetection?: ToolLoopDetectionConfig;
+  toolOrigin?: GlobalEgressGateOrigin;
+  toolOwner?: {
+    pluginId?: string;
+  };
+  trustedPluginIds?: readonly string[];
+  egressApprovalPasswordFile?: string;
 };
 
 type HookBlockedKind = "veto" | "failure";
-type HookBlockedReason = "plugin-before-tool-call" | "plugin-approval" | "tool-loop";
+type HookBlockedReason =
+  | "plugin-before-tool-call"
+  | "plugin-approval"
+  | "tool-loop"
+  | "global-egress-gate";
 type HookOutcome =
   | {
       blocked: true;
@@ -404,6 +419,40 @@ export async function runBeforeToolCallHook(args: {
   const toolName = normalizeToolName(args.toolName || "tool");
   const params = args.params;
 
+  const globalEgressGateDecision = decideGlobalEgressGate({
+    toolName,
+    sessionKey: args.ctx?.sessionKey,
+    origin: args.ctx?.toolOrigin,
+    toolOwner: args.ctx?.toolOwner,
+    trustedPluginIds: args.ctx?.trustedPluginIds,
+  });
+  if (!globalEgressGateDecision.allowed) {
+    return {
+      blocked: true,
+      kind: "veto",
+      deniedReason: "global-egress-gate",
+      reason: globalEgressGateDecision.reason,
+      params,
+    };
+  }
+
+  const egressApproval = await requestEgressApprovalPassword({
+    toolName,
+    params,
+    toolCallId: args.toolCallId,
+    sessionKey: args.ctx?.sessionKey,
+    passwordFile: args.ctx?.egressApprovalPasswordFile,
+  });
+  if (!egressApproval.approved) {
+    return {
+      blocked: true,
+      kind: "veto",
+      deniedReason: "global-egress-gate",
+      reason: egressApproval.reason,
+      params,
+    };
+  }
+
   if (args.ctx?.sessionKey) {
     const { getDiagnosticSessionState, logToolLoopAction, detectToolCallLoop, recordToolCall } =
       await loadBeforeToolCallRuntime();
@@ -603,6 +652,7 @@ export function wrapToolWithBeforeToolCallHook(
     return tool;
   }
   const toolName = tool.name || "tool";
+  const pluginMeta = getPluginToolMeta(tool);
   const wrappedTool: AnyAgentTool = {
     ...tool,
     execute: async (toolCallId, params, signal, onUpdate) => {
@@ -610,7 +660,10 @@ export function wrapToolWithBeforeToolCallHook(
         toolName,
         params,
         toolCallId,
-        ctx,
+        ctx: {
+          ...ctx,
+          ...(pluginMeta?.pluginId ? { toolOwner: { pluginId: pluginMeta.pluginId } } : {}),
+        },
         signal,
       });
       if (outcome.blocked) {

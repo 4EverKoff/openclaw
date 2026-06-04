@@ -248,6 +248,7 @@ export async function invokeGatewayTool(params: {
       action,
       args,
     });
+    const pluginMeta = getPluginToolMeta(gatewayTool);
     const hookResult = await runBeforeToolCallHook({
       toolName,
       params: toolArgs,
@@ -255,6 +256,10 @@ export async function invokeGatewayTool(params: {
       ctx: {
         agentId,
         sessionKey,
+        ...(pluginMeta?.pluginId ? { toolOwner: { pluginId: pluginMeta.pluginId } } : {}),
+        ...(Array.isArray(params.cfg.plugins?.allow)
+          ? { trustedPluginIds: params.cfg.plugins.allow }
+          : {}),
         loopDetection: resolveToolLoopDetectionConfig({ cfg: params.cfg, agentId }),
       },
       approvalMode: params.approvalMode,

@@ -2,6 +2,10 @@ import type { Command } from "commander";
 import { getRuntimeConfig } from "../config/config.js";
 import { defaultRuntime } from "../runtime.js";
 import { runSecurityAudit } from "../security/audit.js";
+import {
+  resolvePendingEgressApprovalRequest,
+  type ResolvePendingEgressApprovalResult,
+} from "../security/egress-approval-password.js";
 import { fixSecurityFootguns } from "../security/fix.js";
 import { normalizeOptionalString } from "../shared/string-coerce.js";
 import { formatDocsLink } from "../terminal/links.js";
@@ -20,6 +24,12 @@ type SecurityAuditOptions = {
   password?: string;
 };
 
+type EgressApprovalCliOptions = {
+  json?: boolean;
+  passwordFile?: string;
+  requestsDir?: string;
+};
+
 function formatSummary(summary: { critical: number; warn: number; info: number }): string {
   const rich = isRich();
   const c = summary.critical;
@@ -30,6 +40,58 @@ function formatSummary(summary: { critical: number; warn: number; info: number }
   parts.push(rich ? theme.warn(`${w} warn`) : `${w} warn`);
   parts.push(rich ? theme.muted(`${i} info`) : `${i} info`);
   return parts.join(" · ");
+}
+
+function formatEgressApprovalResult(
+  result: Extract<ResolvePendingEgressApprovalResult, { ok: true }>,
+): string {
+  const rich = isRich();
+  const heading = rich ? theme.heading("Egress approval") : "Egress approval";
+  const status =
+    result.decision === "approved"
+      ? rich
+        ? theme.success("approved")
+        : "approved"
+      : rich
+        ? theme.warn("denied")
+        : "denied";
+  const lines = [
+    heading,
+    `Status: ${status}`,
+    `Request: ${shortenHomePath(result.requestFile)}`,
+    result.request.toolName ? `Tool: ${result.request.toolName}` : undefined,
+    result.request.categories ? `Categories: ${result.request.categories}` : undefined,
+    result.request.sessionKey ? `Session: ${result.request.sessionKey}` : undefined,
+    result.request.toolCallId ? `Tool call: ${result.request.toolCallId}` : undefined,
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
+async function runEgressApprovalDecision(
+  decision: "approve" | "deny",
+  requestFile: string | undefined,
+  opts: EgressApprovalCliOptions,
+) {
+  const result = await resolvePendingEgressApprovalRequest({
+    decision,
+    requestFile,
+    passwordFile: opts.passwordFile,
+    requestsDir: opts.requestsDir,
+  });
+
+  if (opts.json) {
+    defaultRuntime.writeJson(result, 0);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (!result.ok) {
+    throw new Error(result.reason);
+  }
+
+  defaultRuntime.log(formatEgressApprovalResult(result));
 }
 
 export function registerSecurityCli(program: Command) {
@@ -52,6 +114,14 @@ export function registerSecurityCli(program: Command) {
           ],
           ["openclaw security audit --fix", "Apply safe remediations and file-permission fixes."],
           ["openclaw security audit --json", "Output machine-readable JSON."],
+          [
+            "openclaw security egress-approval approve",
+            "Approve newest pending egress request after local password verification.",
+          ],
+          [
+            "openclaw security egress-approval deny <request-file>",
+            "Deny a specific pending egress request.",
+          ],
         ])}\n\n${theme.muted("Docs:")} ${formatDocsLink("/cli/security", "docs.openclaw.ai/cli/security")}\n`,
     );
 
@@ -195,4 +265,45 @@ export function registerSecurityCli(program: Command) {
 
       defaultRuntime.log(lines.join("\n"));
     });
+
+  const egressApproval = security
+    .command("egress-approval")
+    .description("Approve or deny pending egress approval requests")
+    .addHelpText(
+      "after",
+      () =>
+        `\n${theme.heading("Examples:")}\n${formatHelpExamples([
+          [
+            "openclaw security egress-approval approve",
+            "Approve newest pending request after local password verification.",
+          ],
+          [
+            "openclaw security egress-approval approve ~/.openclaw/security/egress-approval-requests/<id>.json",
+            "Approve a specific request file.",
+          ],
+          [
+            "openclaw security egress-approval deny ~/.openclaw/security/egress-approval-requests/<id>.json",
+            "Deny a specific request.",
+          ],
+        ])}\n`,
+    );
+
+  egressApproval
+    .command("approve [requestFile]")
+    .description("Approve a pending egress request after local password verification")
+    .option("--password-file <path>", "Use a specific egress approval password hash file")
+    .option("--requests-dir <path>", "Use a specific pending egress approval requests directory")
+    .option("--json", "Print JSON", false)
+    .action((requestFile: string | undefined, opts: EgressApprovalCliOptions) =>
+      runEgressApprovalDecision("approve", requestFile, opts),
+    );
+
+  egressApproval
+    .command("deny [requestFile]")
+    .description("Deny a pending egress request")
+    .option("--requests-dir <path>", "Use a specific pending egress approval requests directory")
+    .option("--json", "Print JSON", false)
+    .action((requestFile: string | undefined, opts: EgressApprovalCliOptions) =>
+      runEgressApprovalDecision("deny", requestFile, opts),
+    );
 }

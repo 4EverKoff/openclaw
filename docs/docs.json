@@ -1536,6 +1536,7 @@
               {
                 "group": "Security",
                 "pages": [
+                  "security/global-egress-gate",
                   "security/network-proxy",
                   "security/formal-verification",
                   "security/THREAT-MODEL-ATLAS",

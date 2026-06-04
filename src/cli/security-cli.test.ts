@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Command } from "commander";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerSecurityCli } from "./security-cli.js";
@@ -198,5 +201,40 @@ describe("security CLI", () => {
         deepProbeAuth,
       }),
     );
+  });
+
+  it("denies a pending egress approval request through the security CLI", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-egress-cli-"));
+    const requestFile = path.join(tempDir, "request.json");
+    try {
+      fs.writeFileSync(
+        requestFile,
+        JSON.stringify(
+          {
+            id: "request",
+            status: "pending",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            expiresAt: "2030-01-01T00:00:00.000Z",
+            toolName: "message",
+            categories: "external_send",
+            sessionKey: "main",
+          },
+          null,
+          2,
+        ),
+      );
+
+      await createProgram().parseAsync(["security", "egress-approval", "deny", requestFile], {
+        from: "user",
+      });
+
+      const request = JSON.parse(fs.readFileSync(requestFile, "utf8"));
+      expect(request.status).toBe("denied");
+      const output = runtimeLogs.join("\n");
+      expect(output).toContain("Egress approval");
+      expect(output).toContain("Status: denied");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

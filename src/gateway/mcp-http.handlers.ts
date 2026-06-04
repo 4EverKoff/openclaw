@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { runBeforeToolCallHook, type HookContext } from "../agents/pi-tools.before-tool-call.js";
 import { formatErrorMessage } from "../infra/errors.js";
+import { getPluginToolMeta } from "../plugins/tools.js";
 import {
   MCP_LOOPBACK_SERVER_NAME,
   MCP_LOOPBACK_SERVER_VERSION,
@@ -73,11 +74,15 @@ export async function handleMcpJsonRpc(params: {
       }
       const toolCallId = `mcp-${crypto.randomUUID()}`;
       try {
+        const pluginMeta = getPluginToolMeta(tool);
         const hookResult = await runBeforeToolCallHook({
           toolName,
           params: toolArgs,
           toolCallId,
-          ctx: params.hookContext,
+          ctx: {
+            ...params.hookContext,
+            ...(pluginMeta?.pluginId ? { toolOwner: { pluginId: pluginMeta.pluginId } } : {}),
+          },
           signal: params.signal,
         });
         if (hookResult.blocked) {

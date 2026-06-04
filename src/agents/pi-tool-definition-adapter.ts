@@ -6,6 +6,7 @@ import type {
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { logDebug, logError } from "../logger.js";
 import { redactToolDetail } from "../logging/redact.js";
+import { getPluginToolMeta } from "../plugins/tools.js";
 import { isPlainObject } from "../utils.js";
 import { sanitizeForConsole } from "./console-sanitize.js";
 import type { ClientToolDefinition } from "./pi-embedded-runner/run/params.js";
@@ -228,6 +229,7 @@ export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {
     const name = tool.name || "tool";
     const normalizedName = normalizeToolName(name);
     const beforeHookWrapped = isToolWrappedWithBeforeToolCallHook(tool);
+    const pluginMeta = getPluginToolMeta(tool);
     return {
       name,
       label: tool.label ?? name,
@@ -242,6 +244,9 @@ export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {
               toolName: name,
               params,
               toolCallId,
+              ...(pluginMeta?.pluginId
+                ? { ctx: { toolOwner: { pluginId: pluginMeta.pluginId } } }
+                : {}),
             });
             if (hookOutcome.blocked) {
               if (hookOutcome.kind === "veto") {

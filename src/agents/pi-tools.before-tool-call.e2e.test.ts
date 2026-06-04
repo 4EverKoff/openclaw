@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   onInternalDiagnosticEvent,
@@ -662,6 +665,91 @@ describe("before_tool_call requireApproval handling", () => {
       signal: controller.signal,
     });
   }
+
+  function writeMalformedApprovalPasswordFile() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-egress-approval-hook-"));
+    const file = path.join(dir, "password.json");
+    fs.writeFileSync(file, JSON.stringify({ algorithm: "scrypt", salt: "x", hash: "x" }));
+    return { dir, file };
+  }
+
+  it("blocks sensitive tool calls from external hook sessions before plugin approvals", async () => {
+    hookRunner.runBeforeToolCall.mockResolvedValue({
+      requireApproval: {
+        title: "Should not run",
+        description: "External hook should be blocked first",
+      },
+    });
+
+    const result = await runBeforeToolCallHook({
+      toolName: "message",
+      params: { action: "send", message: "exfiltrate" },
+      ctx: { agentId: "main", sessionKey: "hook:gmail:attacker" },
+    });
+
+    expect(result.blocked).toBe(true);
+    expect(result).toHaveProperty("deniedReason", "global-egress-gate");
+    expect(result).toHaveProperty(
+      "reason",
+      expect.stringContaining("Origin external_hook cannot invoke external_send tool"),
+    );
+    expect(hookRunner.runBeforeToolCall).not.toHaveBeenCalled();
+    expect(mockCallGateway).not.toHaveBeenCalled();
+  });
+
+  it("blocks untrusted plugin tools before plugin approvals", async () => {
+    hookRunner.runBeforeToolCall.mockResolvedValue({
+      requireApproval: {
+        title: "Should not run",
+        description: "Untrusted plugin should be blocked first",
+      },
+    });
+
+    const result = await runBeforeToolCallHook({
+      toolName: "custom_plugin_tool",
+      params: { path: "/Users/koff/Pictures" },
+      ctx: {
+        agentId: "main",
+        sessionKey: "main",
+        toolOwner: { pluginId: "unknown-plugin" },
+        trustedPluginIds: ["trusted-plugin"],
+      },
+    });
+
+    expect(result.blocked).toBe(true);
+    expect(result).toHaveProperty("deniedReason", "global-egress-gate");
+    expect(result).toHaveProperty(
+      "reason",
+      expect.stringContaining("Origin untrusted_plugin cannot invoke dangerous_action tool"),
+    );
+    expect(hookRunner.runBeforeToolCall).not.toHaveBeenCalled();
+    expect(mockCallGateway).not.toHaveBeenCalled();
+  });
+
+  it("blocks trusted external-send tools when egress password approval cannot prompt locally", async () => {
+    const { dir, file } = writeMalformedApprovalPasswordFile();
+    try {
+      const result = await runBeforeToolCallHook({
+        toolName: "message",
+        params: { action: "send", target: "outside" },
+        ctx: {
+          agentId: "main",
+          sessionKey: "main",
+          egressApprovalPasswordFile: file,
+        },
+      });
+
+      expect(result.blocked).toBe(true);
+      expect(result).toHaveProperty("deniedReason", "global-egress-gate");
+      expect(result).toHaveProperty(
+        "reason",
+        expect.stringContaining("Egress approval password required"),
+      );
+      expect(hookRunner.runBeforeToolCall).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 
   it("blocks without triggering approval when both block and requireApproval are set", async () => {
     hookRunner.runBeforeToolCall.mockResolvedValue({

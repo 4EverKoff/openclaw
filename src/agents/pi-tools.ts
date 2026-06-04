@@ -830,6 +830,9 @@ export function createOpenClawCodingTools(options?: {
       runId: options?.runId,
       ...(options?.trace ? { trace: options.trace } : {}),
       loopDetection: resolveToolLoopDetectionConfig({ cfg: options?.config, agentId }),
+      ...(Array.isArray(options?.config?.plugins?.allow)
+        ? { trustedPluginIds: options.config.plugins.allow }
+        : {}),
     }),
   );
   options?.recordToolPrepStage?.("tool-hooks");
