@@ -2,6 +2,7 @@ import type {
   MediaUnderstandingDecision,
   MediaUnderstandingOutput,
 } from "../media-understanding/types.js";
+import type { GlobalEgressGateOrigin } from "../security/global-egress-gate.js";
 import type { InputProvenance } from "../sessions/input-provenance.js";
 import type { CommandArgs } from "./commands-args.types.js";
 import type { ReplyThreadingPolicy } from "./types.js";
@@ -35,6 +36,8 @@ export type MsgContext = {
    * Should use real newlines (`\n`), not escaped `\\n`.
    */
   BodyForAgent?: string;
+  /** Internal runtime provenance for tool calls triggered by rewritten/untrusted prompts. */
+  ToolOrigin?: GlobalEgressGateOrigin;
   /**
    * Recent chat history for context (untrusted user content). Prefer passing this
    * as structured context blocks in the user prompt rather than rendering plaintext envelopes.

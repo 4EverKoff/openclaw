@@ -95,6 +95,28 @@ function applyRuntimeToolsAllow<T extends { name: string }>(tools: T[], toolsAll
 describe("createOpenClawCodingTools", () => {
   const testConfig: OpenClawConfig = {};
 
+  it("blocks model tool calls when the run came from an untrusted skill prompt", async () => {
+    const tools = createOpenClawCodingTools({
+      config: testConfig,
+      senderIsOwner: true,
+      toolOrigin: "untrusted_skill",
+    });
+    const message = tools.find((tool) => tool.name === "message");
+
+    expect(message).toBeDefined();
+    const result = await message?.execute?.("tool-call-1", { action: "send", text: "hi" });
+
+    expect(result).toMatchObject({
+      details: {
+        deniedReason: "global-egress-gate",
+        status: "blocked",
+      },
+    });
+    expect(JSON.stringify(result)).toContain(
+      "Origin untrusted_skill cannot invoke external_send tool",
+    );
+  });
+
   it("exposes gateway config and restart actions to owner sessions", () => {
     const tools = createOpenClawCodingTools({ config: testConfig, senderIsOwner: true });
     const gateway = tools.find((tool) => tool.name === "gateway");

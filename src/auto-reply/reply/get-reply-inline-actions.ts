@@ -332,8 +332,10 @@ export async function handleInlineActions(params: {
           .join("\n\n");
     ctx.Body = rewrittenBody;
     ctx.BodyForAgent = rewrittenBody;
+    ctx.ToolOrigin = "untrusted_skill";
     sessionCtx.Body = rewrittenBody;
     sessionCtx.BodyForAgent = rewrittenBody;
+    sessionCtx.ToolOrigin = "untrusted_skill";
     sessionCtx.BodyStripped = rewrittenBody;
     cleanedBody = rewrittenBody;
   }

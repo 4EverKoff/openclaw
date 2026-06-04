@@ -1338,7 +1338,9 @@ export async function runAgentTurnWithFallback(params: {
                   messageProvider: hookMessageProvider,
                   agentAccountId: params.followupRun.run.agentAccountId,
                   senderIsOwner: params.followupRun.run.senderIsOwner,
-                  disableTools: params.opts?.disableTools,
+                  disableTools:
+                    params.opts?.disableTools === true ||
+                    params.sessionCtx.ToolOrigin === "untrusted_skill",
                   abortSignal: params.replyOperation?.abortSignal ?? params.opts?.abortSignal,
                   replyOperation: params.replyOperation,
                 });
@@ -1455,6 +1457,7 @@ export async function runAgentTurnWithFallback(params: {
                 forceMessageTool:
                   params.followupRun.run.sourceReplyDeliveryMode === "message_tool_only",
                 silentReplyPromptMode: params.followupRun.run.silentReplyPromptMode,
+                toolOrigin: params.sessionCtx.ToolOrigin,
                 toolResultFormat: (() => {
                   const channel = resolveMessageChannel(
                     params.sessionCtx.Surface,

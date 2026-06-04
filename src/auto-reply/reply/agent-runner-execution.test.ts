@@ -519,6 +519,40 @@ describe("runAgentTurnWithFallback", () => {
     );
   });
 
+  it("disables CLI tools when the run came from an untrusted skill prompt", async () => {
+    state.isCliProviderMock.mockReturnValue(true);
+    state.runWithModelFallbackMock.mockImplementationOnce(async (params: FallbackRunnerParams) => ({
+      result: await params.run("codex-cli", "gpt-5.4"),
+      provider: "codex-cli",
+      model: "gpt-5.4",
+      attempts: [],
+    }));
+    state.runCliAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "final" }],
+      meta: {},
+    });
+
+    const runAgentTurnWithFallback = await getRunAgentTurnWithFallback();
+    const followupRun = createFollowupRun();
+    followupRun.run.provider = "codex-cli";
+    followupRun.run.model = "gpt-5.4";
+
+    await runAgentTurnWithFallback({
+      ...createMinimalRunAgentTurnParams({ followupRun }),
+      sessionCtx: {
+        Provider: "whatsapp",
+        MessageSid: "msg",
+        ToolOrigin: "untrusted_skill",
+      } as unknown as TemplateContext,
+    });
+
+    expect(state.runCliAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        disableTools: true,
+      }),
+    );
+  });
+
   it("does not pass CLI runtime overrides as embedded harness ids for fallback providers", async () => {
     state.isCliProviderMock.mockImplementation((provider: unknown) => provider === "claude-cli");
     state.runWithModelFallbackMock.mockImplementationOnce(async (params: FallbackRunnerParams) => ({

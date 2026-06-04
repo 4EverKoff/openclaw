@@ -564,10 +564,12 @@ describe("handleInlineActions", () => {
     expect(ctx.Body).toBe(
       "Act as an engineering advisor.\n\nFocus on:\nbuild me a deployment plan",
     );
+    expect(ctx.ToolOrigin).toBe("untrusted_skill");
     expect(handleCommandsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         ctx: expect.objectContaining({
           Body: "Act as an engineering advisor.\n\nFocus on:\nbuild me a deployment plan",
+          ToolOrigin: "untrusted_skill",
         }),
       }),
     );
