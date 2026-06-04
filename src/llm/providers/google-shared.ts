@@ -371,15 +371,25 @@ export function convertTools(
   if (tools.length === 0) {
     return undefined;
   }
-  return [
-    {
-      functionDeclarations: tools.map((tool) => ({
+  const functionDeclarations = tools.flatMap((tool) => {
+    try {
+      return {
         name: tool.name,
         description: tool.description,
         ...(useParameters
           ? { parameters: sanitizeForOpenApi(tool.parameters as unknown) }
           : { parametersJsonSchema: tool.parameters }),
-      })),
+      };
+    } catch {
+      return [];
+    }
+  });
+  if (functionDeclarations.length === 0) {
+    return undefined;
+  }
+  return [
+    {
+      functionDeclarations,
     },
   ];
 }
@@ -484,14 +494,15 @@ export function buildGoogleGenerateContentParams<T extends GoogleApiType>(
   if (options.stop !== undefined && options.stop.length > 0) {
     generationConfig.stopSequences = options.stop;
   }
+  const convertedTools = context.tools?.length ? convertTools(context.tools) : undefined;
 
   const config: GenerateContentConfig = {
     ...(Object.keys(generationConfig).length > 0 && generationConfig),
     ...(context.systemPrompt && { systemInstruction: sanitizeSurrogates(context.systemPrompt) }),
-    ...(context.tools && context.tools.length > 0 && { tools: convertTools(context.tools) }),
+    ...(convertedTools && { tools: convertedTools }),
   };
 
-  if (context.tools && context.tools.length > 0 && options.toolChoice) {
+  if (convertedTools && options.toolChoice) {
     config.toolConfig = {
       functionCallingConfig: {
         mode: mapToolChoice(options.toolChoice),

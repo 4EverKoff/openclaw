@@ -17,6 +17,40 @@ const convertMessagesForTest = convertMessages as unknown as (
   context: Context,
 ) => ReturnType<typeof convertMessages>;
 
+function makeUnreadableParameterTool(): Tool {
+  const tool = {
+    name: "broken_tool",
+    description: "Broken tool",
+    parameters: { type: "object", properties: {} },
+    async execute() {
+      return { content: [{ type: "text", text: "broken" }] };
+    },
+  };
+  Object.defineProperty(tool, "parameters", {
+    enumerable: true,
+    get() {
+      throw new Error("fuzzplugin parameters getter exploded");
+    },
+  });
+  return tool as unknown as Tool;
+}
+
+function makeHealthyTool(): Tool {
+  return {
+    name: "healthy_tool",
+    description: "Healthy tool",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+      },
+    },
+    async execute() {
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  } as unknown as Tool;
+}
+
 function requireRecordProperty(
   record: Record<string, unknown>,
   key: string,
@@ -29,6 +63,47 @@ function requireRecordProperty(
 }
 
 describe("google-shared convertTools", () => {
+  it("skips unreadable tool schemas while preserving healthy Gemini declarations", () => {
+    const converted = convertTools([makeUnreadableParameterTool(), makeHealthyTool()]);
+
+    expect(converted).toEqual([
+      {
+        functionDeclarations: [
+          {
+            name: "healthy_tool",
+            description: "Healthy tool",
+            parametersJsonSchema: {
+              type: "object",
+              properties: {
+                query: { type: "string" },
+              },
+            },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("omits Google tool declarations when every schema is unreadable", () => {
+    expect(convertTools([makeUnreadableParameterTool()])).toBeUndefined();
+  });
+
+  it("skips unreadable legacy OpenAPI parameter declarations", () => {
+    const converted = convertTools([makeUnreadableParameterTool(), makeHealthyTool()], true);
+
+    const declaration = converted?.[0]?.functionDeclarations[0];
+    expect(declaration).toEqual({
+      name: "healthy_tool",
+      description: "Healthy tool",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+        },
+      },
+    });
+  });
+
   it("preserves parameters when type is missing", () => {
     const tools = [
       {
