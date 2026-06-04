@@ -1,5 +1,6 @@
 import { collectTextContentBlocks } from "../../agents/content-blocks.js";
 import type { BlockReplyChunking } from "../../agents/pi-embedded-block-chunker.js";
+import { wrapToolWithBeforeToolCallHook } from "../../agents/pi-tools.before-tool-call.js";
 import type { SkillCommandSpec } from "../../agents/skills.js";
 import { applyOwnerOnlyToolPolicy } from "../../agents/tool-policy.js";
 import { getChannelPlugin } from "../../channels/plugins/index.js";
@@ -301,7 +302,13 @@ export async function handleInlineActions(params: {
           commandName: skillInvocation.command.name,
           skillName: skillInvocation.command.skillName,
         };
-        const result = await tool.execute(toolCallId, toolArgs);
+        const guardedTool = wrapToolWithBeforeToolCallHook(tool, {
+          agentId,
+          sessionKey,
+          toolOrigin: "untrusted_skill",
+          trustedPluginIds: Array.isArray(cfg.plugins?.allow) ? cfg.plugins.allow : undefined,
+        });
+        const result = await guardedTool.execute?.(toolCallId, toolArgs);
         const text = extractTextFromToolResult(result) ?? "✅ Done.";
         typing.cleanup();
         return { kind: "reply", reply: { text } };

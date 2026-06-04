@@ -93,4 +93,26 @@ describe("global egress gate", () => {
       expect(mcpDecision.categories).toEqual(["dangerous_action"]);
     }
   });
+
+  it("blocks sensitive and unknown tools from untrusted skills", () => {
+    const sensitiveDecision = decideGlobalEgressGate({
+      toolName: "message",
+      origin: "untrusted_skill",
+    });
+    const unknownDecision = decideGlobalEgressGate({
+      toolName: "custom_skill_upload",
+      origin: "untrusted_skill",
+    });
+
+    expect(sensitiveDecision.allowed).toBe(false);
+    expect(unknownDecision.allowed).toBe(false);
+    if (!sensitiveDecision.allowed) {
+      expect(sensitiveDecision.origin).toBe("untrusted_skill");
+      expect(sensitiveDecision.categories).toEqual(["external_send"]);
+    }
+    if (!unknownDecision.allowed) {
+      expect(unknownDecision.origin).toBe("untrusted_skill");
+      expect(unknownDecision.categories).toEqual(["dangerous_action"]);
+    }
+  });
 });

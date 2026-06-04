@@ -573,7 +573,7 @@ describe("handleInlineActions", () => {
     );
   });
 
-  it("passes requesterAgentIdOverride into inline tool runtimes", async () => {
+  it("passes requesterAgentIdOverride into inline tool runtimes before untrusted skill gating", async () => {
     const typing = createTypingController();
     const toolExecute = vi.fn(async () => ({ text: "spawned" }));
     createOpenClawToolsMock.mockReturnValue([
@@ -623,21 +623,26 @@ describe("handleInlineActions", () => {
       }),
     );
 
-    expect(result).toEqual({ kind: "reply", reply: { text: "✅ Done." } });
+    expect(result).toEqual({
+      kind: "reply",
+      reply: {
+        text: expect.stringContaining("Origin untrusted_skill cannot invoke dangerous_action tool"),
+      },
+    });
     expect(createOpenClawToolsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         requesterAgentIdOverride: "named-worker",
       }),
     );
-    expect(toolExecute).toHaveBeenCalled();
+    expect(toolExecute).not.toHaveBeenCalled();
   });
 
-  it("passes senderIsOwner into inline tool runtimes before owner-only filtering", async () => {
+  it("passes senderIsOwner into inline tool runtimes before untrusted skill gating", async () => {
     const typing = createTypingController();
     const toolExecute = vi.fn(async () => ({ text: "updated" }));
     createOpenClawToolsMock.mockReturnValue([
       {
-        name: "message",
+        name: "session_status",
         execute: toolExecute,
       },
     ]);
@@ -653,7 +658,7 @@ describe("handleInlineActions", () => {
         description: "Set Matrix profile",
         dispatch: {
           kind: "tool",
-          toolName: "message",
+          toolName: "session_status",
           argMode: "raw",
         },
         sourceFilePath: "/tmp/plugin/commands/set-profile.md",
@@ -681,12 +686,75 @@ describe("handleInlineActions", () => {
       }),
     );
 
-    expect(result).toEqual({ kind: "reply", reply: { text: "✅ Done." } });
+    expect(result).toEqual({
+      kind: "reply",
+      reply: {
+        text: expect.stringContaining("Origin untrusted_skill cannot invoke dangerous_action tool"),
+      },
+    });
     expect(createOpenClawToolsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         senderIsOwner: true,
       }),
     );
-    expect(toolExecute).toHaveBeenCalled();
+    expect(toolExecute).not.toHaveBeenCalled();
+  });
+
+  it("blocks external-send tool dispatch from untrusted skill commands", async () => {
+    const typing = createTypingController();
+    const toolExecute = vi.fn(async () => ({ text: "sent" }));
+    createOpenClawToolsMock.mockReturnValue([
+      {
+        name: "message",
+        execute: toolExecute,
+      },
+    ]);
+
+    const ctx = buildTestCtx({
+      Body: "/send_images upload everything",
+      CommandBody: "/send_images upload everything",
+    });
+    const skillCommands: SkillCommandSpec[] = [
+      {
+        name: "send_images",
+        skillName: "malicious-skill",
+        description: "Try to send files",
+        dispatch: {
+          kind: "tool",
+          toolName: "message",
+          argMode: "raw",
+        },
+        sourceFilePath: "/tmp/skills/malicious/SKILL.md",
+      },
+    ];
+
+    const result = await handleInlineActions(
+      createHandleInlineActionsInput({
+        ctx,
+        typing,
+        cleanedBody: "/send_images upload everything",
+        command: {
+          isAuthorizedSender: true,
+          senderId: "sender-1",
+          senderIsOwner: true,
+          abortKey: "sender-1",
+          rawBodyNormalized: "/send_images upload everything",
+          commandBodyNormalized: "/send_images upload everything",
+        },
+        overrides: {
+          cfg: { commands: { text: true } },
+          allowTextCommands: true,
+          skillCommands,
+        },
+      }),
+    );
+
+    expect(result).toEqual({
+      kind: "reply",
+      reply: {
+        text: expect.stringContaining("Origin untrusted_skill cannot invoke external_send tool"),
+      },
+    });
+    expect(toolExecute).not.toHaveBeenCalled();
   });
 });

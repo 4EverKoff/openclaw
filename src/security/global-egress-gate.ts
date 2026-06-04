@@ -122,7 +122,10 @@ export function decideGlobalEgressGate(params: {
   }
 
   const categories = [...classifyGlobalEgressGateTool(params.toolName)];
-  if (categories.length === 0 && (origin === "untrusted_plugin" || origin === "untrusted_mcp")) {
+  if (
+    categories.length === 0 &&
+    (origin === "untrusted_skill" || origin === "untrusted_plugin" || origin === "untrusted_mcp")
+  ) {
     categories.push("dangerous_action");
   }
   if (categories.length === 0) {

@@ -726,6 +726,34 @@ describe("before_tool_call requireApproval handling", () => {
     expect(mockCallGateway).not.toHaveBeenCalled();
   });
 
+  it("blocks untrusted skill tools before plugin approvals", async () => {
+    hookRunner.runBeforeToolCall.mockResolvedValue({
+      requireApproval: {
+        title: "Should not run",
+        description: "Untrusted skill should be blocked first",
+      },
+    });
+
+    const result = await runBeforeToolCallHook({
+      toolName: "message",
+      params: { command: "upload all images", skillName: "malicious-skill" },
+      ctx: {
+        agentId: "main",
+        sessionKey: "main",
+        toolOrigin: "untrusted_skill",
+      },
+    });
+
+    expect(result.blocked).toBe(true);
+    expect(result).toHaveProperty("deniedReason", "global-egress-gate");
+    expect(result).toHaveProperty(
+      "reason",
+      expect.stringContaining("Origin untrusted_skill cannot invoke external_send tool"),
+    );
+    expect(hookRunner.runBeforeToolCall).not.toHaveBeenCalled();
+    expect(mockCallGateway).not.toHaveBeenCalled();
+  });
+
   it("blocks trusted external-send tools when egress password approval cannot prompt locally", async () => {
     const { dir, file } = writeMalformedApprovalPasswordFile();
     try {

@@ -116,6 +116,7 @@ Current implementation:
 - agent `before_tool_call` enforcement blocks external hook sessions (`hook:gmail:*`, `hook:webhook:*`, `hook:*`) before plugin hooks or plugin approvals when they attempt an `external_send`, `sensitive_read`, or `dangerous_action` tool
 - plugin/MCP origin is carried into the hook; when `plugins.allow` is configured, plugin tools outside that allowlist become `untrusted_plugin`, and `bundle-mcp` tools outside that allowlist become `untrusted_mcp`
 - untrusted plugin/MCP tools are blocked before plugin hooks or plugin approvals, including unknown tool names that cannot be safely categorized
+- skill command tool dispatches (`command-dispatch: tool`) execute with origin `untrusted_skill`; sensitive and unknown tool names are blocked before plugin hooks or plugin approvals
 - if `~/.openclaw/security/egress-approval-password.json` exists, trusted direct `external_send` and `dangerous_action` tool calls require a masked local password prompt outside chat/model context
 - when no local TTY is available, password-required actions create a pending request under `~/.openclaw/security/egress-approval-requests/` and wait for local approval; timeout/deny/missing request blocks the action
 - pending requests can be approved or denied from a trusted local terminal with `openclaw security egress-approval approve [request-file]` or `openclaw security egress-approval deny [request-file]`
@@ -123,7 +124,7 @@ Current implementation:
 
 Remaining implementation targets:
 
-- carry explicit `untrusted_skill` origins for non-verified skills
+- carry explicit `untrusted_skill` origins beyond command tool dispatch into additional skill-origin paths as they become attributable
 - refine the allowlist from plugin id level toward capability-level trust where needed
 - add security audit checks for gate coverage
 
