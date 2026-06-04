@@ -7,7 +7,10 @@ import type { DiagnosticTraceContext } from "../infra/diagnostic-trace-context.j
 import { resolveMergedSafeBinProfileFixtures } from "../infra/exec-safe-bin-runtime-policy.js";
 import { logWarn } from "../logger.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
-import type { GlobalEgressGateOrigin } from "../security/global-egress-gate.js";
+import {
+  resolveGlobalEgressGateTrustedPluginToolAllowlists,
+  type GlobalEgressGateOrigin,
+} from "../security/global-egress-gate.js";
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
 import {
   normalizeLowercaseStringOrEmpty,
@@ -837,6 +840,9 @@ export function createOpenClawCodingTools(options?: {
       ...(Array.isArray(options?.config?.plugins?.allow)
         ? { trustedPluginIds: options.config.plugins.allow }
         : {}),
+      trustedPluginToolAllowlists: resolveGlobalEgressGateTrustedPluginToolAllowlists(
+        options?.config,
+      ),
     }),
   );
   options?.recordToolPrepStage?.("tool-hooks");

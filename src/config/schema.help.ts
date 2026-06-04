@@ -1216,6 +1216,12 @@ export const FIELD_HELP: Record<string, string> = {
     "Per-plugin settings keyed by plugin ID including enablement and plugin-specific runtime configuration payloads. Use this for scoped plugin tuning without changing global loader policy.",
   "plugins.entries.*.enabled":
     "Per-plugin enablement override for a specific entry, applied on top of global plugin policy (restart required). Use this to stage plugin rollout gradually across environments.",
+  "plugins.entries.*.trust":
+    "Per-plugin trust policy for high-impact runtime capabilities. Use this to grant narrowly scoped egress-gate trust without trusting every tool from the plugin.",
+  "plugins.entries.*.trust.tools":
+    "Tool-level trust policy for this plugin. Keep the allowlist small and review tool names against the plugin manifest before enabling.",
+  "plugins.entries.*.trust.tools.allow":
+    "Explicit plugin tool names trusted by the global egress gate for this plugin. Unlisted tools remain untrusted even when the plugin id is present in plugins.allow.",
   "plugins.entries.*.hooks":
     "Per-plugin typed hook policy controls for core-enforced safety gates. Use this to constrain high-impact hook categories without disabling the entire plugin.",
   "plugins.entries.*.hooks.allowPromptInjection":

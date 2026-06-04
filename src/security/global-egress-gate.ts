@@ -1,3 +1,4 @@
+import type { OpenClawConfig } from "../config/config.js";
 import { isExternalHookSession } from "./external-content-source.js";
 
 export type GlobalEgressGateActionCategory =
@@ -24,6 +25,11 @@ export type GlobalEgressGateDecision =
 
 export type GlobalEgressGateToolOwner = {
   readonly pluginId?: string;
+};
+
+export type GlobalEgressGateTrustedPluginToolAllowlist = {
+  readonly pluginId: string;
+  readonly toolNames: readonly string[];
 };
 
 const EXTERNAL_SEND_TOOLS = new Set([
@@ -84,14 +90,29 @@ export function classifyGlobalEgressGateTool(
 
 export function resolveGlobalEgressGateOrigin(params: {
   readonly sessionKey?: string;
+  readonly toolName?: string;
   readonly toolOwner?: GlobalEgressGateToolOwner;
   readonly trustedPluginIds?: readonly string[];
+  readonly trustedPluginToolAllowlists?: readonly GlobalEgressGateTrustedPluginToolAllowlist[];
 }): GlobalEgressGateOrigin {
   if (params.sessionKey && isExternalHookSession(params.sessionKey)) {
     return "external_hook";
   }
   const pluginId = params.toolOwner?.pluginId?.trim();
   if (pluginId) {
+    const trustedToolAllowlist = params.trustedPluginToolAllowlists?.find(
+      (entry) => entry.pluginId.trim() === pluginId,
+    );
+    if (trustedToolAllowlist) {
+      const toolName = normalizeToolName(params.toolName ?? "");
+      const trustedTool = trustedToolAllowlist.toolNames.some(
+        (candidate) => normalizeToolName(candidate) === toolName,
+      );
+      if (!trustedTool) {
+        return pluginId === "bundle-mcp" ? "untrusted_mcp" : "untrusted_plugin";
+      }
+      return "trusted";
+    }
     const trusted =
       params.trustedPluginIds === undefined
         ? true
@@ -109,13 +130,16 @@ export function decideGlobalEgressGate(params: {
   readonly origin?: GlobalEgressGateOrigin;
   readonly toolOwner?: GlobalEgressGateToolOwner;
   readonly trustedPluginIds?: readonly string[];
+  readonly trustedPluginToolAllowlists?: readonly GlobalEgressGateTrustedPluginToolAllowlist[];
 }): GlobalEgressGateDecision {
   const origin =
     params.origin ??
     resolveGlobalEgressGateOrigin({
       sessionKey: params.sessionKey,
+      toolName: params.toolName,
       toolOwner: params.toolOwner,
       trustedPluginIds: params.trustedPluginIds,
+      trustedPluginToolAllowlists: params.trustedPluginToolAllowlists,
     });
   if (origin === "trusted") {
     return { allowed: true };
@@ -140,4 +164,25 @@ export function decideGlobalEgressGate(params: {
       `Action refused by global egress gate. Origin ${origin} cannot invoke ` +
       `${categories.join(", ")} tool "${params.toolName}". Direct operator intent is required.`,
   };
+}
+
+export function resolveGlobalEgressGateTrustedPluginToolAllowlists(
+  cfg?: OpenClawConfig,
+): GlobalEgressGateTrustedPluginToolAllowlist[] | undefined {
+  const entries = cfg?.plugins?.entries;
+  if (!entries) {
+    return undefined;
+  }
+  const allowlists: GlobalEgressGateTrustedPluginToolAllowlist[] = [];
+  for (const [pluginId, entry] of Object.entries(entries)) {
+    const toolNames = entry?.trust?.tools?.allow;
+    if (!Array.isArray(toolNames)) {
+      continue;
+    }
+    allowlists.push({
+      pluginId,
+      toolNames: toolNames.map((toolName) => String(toolName).trim()).filter(Boolean),
+    });
+  }
+  return allowlists.length > 0 ? allowlists : undefined;
 }

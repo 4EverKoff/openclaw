@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyGlobalEgressGateTool,
   decideGlobalEgressGate,
+  resolveGlobalEgressGateTrustedPluginToolAllowlists,
   resolveGlobalEgressGateOrigin,
 } from "./global-egress-gate.js";
 
@@ -68,6 +69,50 @@ describe("global egress gate", () => {
         trustedPluginIds: ["trusted-plugin"],
       }),
     ).toBe("trusted");
+  });
+
+  it("uses plugin tool trust allowlists before plugin-id trust", () => {
+    const trustedPluginToolAllowlists = [
+      { pluginId: "trusted-plugin", toolNames: ["safe_lookup"] },
+    ];
+
+    expect(
+      resolveGlobalEgressGateOrigin({
+        sessionKey: "main",
+        toolName: "safe_lookup",
+        toolOwner: { pluginId: "trusted-plugin" },
+        trustedPluginIds: ["trusted-plugin"],
+        trustedPluginToolAllowlists,
+      }),
+    ).toBe("trusted");
+
+    expect(
+      resolveGlobalEgressGateOrigin({
+        sessionKey: "main",
+        toolName: "custom_upload_everything",
+        toolOwner: { pluginId: "trusted-plugin" },
+        trustedPluginIds: ["trusted-plugin"],
+        trustedPluginToolAllowlists,
+      }),
+    ).toBe("untrusted_plugin");
+  });
+
+  it("resolves plugin tool trust allowlists from config entries", () => {
+    expect(
+      resolveGlobalEgressGateTrustedPluginToolAllowlists({
+        plugins: {
+          entries: {
+            "trusted-plugin": {
+              trust: {
+                tools: {
+                  allow: ["message", " custom-tool "],
+                },
+              },
+            },
+          },
+        },
+      }),
+    ).toEqual([{ pluginId: "trusted-plugin", toolNames: ["message", "custom-tool"] }]);
   });
 
   it("blocks unknown tools from untrusted plugins and bundle MCP", () => {

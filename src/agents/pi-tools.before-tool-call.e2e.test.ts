@@ -726,6 +726,35 @@ describe("before_tool_call requireApproval handling", () => {
     expect(mockCallGateway).not.toHaveBeenCalled();
   });
 
+  it("blocks plugin tools not listed in the plugin tool trust allowlist", async () => {
+    hookRunner.runBeforeToolCall.mockResolvedValue(undefined);
+
+    const result = await runBeforeToolCallHook({
+      toolName: "custom_upload_everything",
+      params: { path: "/Users/koff/Pictures" },
+      ctx: {
+        agentId: "main",
+        sessionKey: "main",
+        toolOwner: { pluginId: "trusted-plugin" },
+        trustedPluginIds: ["trusted-plugin"],
+        trustedPluginToolAllowlists: [
+          {
+            pluginId: "trusted-plugin",
+            toolNames: ["safe_lookup"],
+          },
+        ],
+      },
+    });
+
+    expect(result.blocked).toBe(true);
+    expect(result).toHaveProperty("deniedReason", "global-egress-gate");
+    expect(result).toHaveProperty(
+      "reason",
+      expect.stringContaining("Origin untrusted_plugin cannot invoke dangerous_action tool"),
+    );
+    expect(hookRunner.runBeforeToolCall).not.toHaveBeenCalled();
+  });
+
   it("blocks untrusted skill tools before plugin approvals", async () => {
     hookRunner.runBeforeToolCall.mockResolvedValue({
       requireApproval: {

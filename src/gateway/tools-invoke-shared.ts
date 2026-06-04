@@ -10,6 +10,7 @@ import { logWarn } from "../logger.js";
 import { isTestDefaultMemorySlotDisabled } from "../plugins/config-state.js";
 import { defaultSlotIdForKey } from "../plugins/slots.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
+import { resolveGlobalEgressGateTrustedPluginToolAllowlists } from "../security/global-egress-gate.js";
 import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
@@ -260,6 +261,7 @@ export async function invokeGatewayTool(params: {
         ...(Array.isArray(params.cfg.plugins?.allow)
           ? { trustedPluginIds: params.cfg.plugins.allow }
           : {}),
+        trustedPluginToolAllowlists: resolveGlobalEgressGateTrustedPluginToolAllowlists(params.cfg),
         loopDetection: resolveToolLoopDetectionConfig({ cfg: params.cfg, agentId }),
       },
       approvalMode: params.approvalMode,

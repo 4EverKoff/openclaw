@@ -40,7 +40,7 @@ It also warns when sandbox browser uses Docker `bridge` network without `sandbox
 It also flags dangerous sandbox Docker network modes (including `host` and `container:*` namespace joins).
 It also warns when existing sandbox browser Docker containers have missing/stale hash labels (for example pre-migration containers missing `openclaw.browserConfigEpoch`) and recommends `openclaw sandbox recreate --browser --all`.
 It also warns when npm-based plugin/hook install records are unpinned, missing integrity metadata, or drift from currently installed package versions.
-It warns when the global egress gate is missing its local approval password hash, and when plugin loading is enabled without a `plugins.allow` allowlist for plugin/MCP trust boundaries.
+It warns when the global egress gate is missing its local approval password hash, when plugin loading is enabled without a `plugins.allow` allowlist for plugin/MCP trust boundaries, and when plugin ids are allowlisted without `plugins.entries.<plugin>.trust.tools.allow` capability-level trust.
 It warns when channel allowlists rely on mutable names/emails/tags instead of stable IDs (Discord, Slack, Google Chat, Microsoft Teams, Mattermost, IRC scopes where applicable).
 It warns when `gateway.auth.mode="none"` leaves Gateway HTTP APIs reachable without a shared secret (`/tools/invoke` plus any enabled `/v1/*` endpoint).
 Settings prefixed with `dangerous`/`dangerously` are explicit break-glass operator overrides; enabling one is not, by itself, a security vulnerability report.

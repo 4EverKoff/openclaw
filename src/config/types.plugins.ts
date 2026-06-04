@@ -1,5 +1,11 @@
 export type PluginEntryConfig = {
   enabled?: boolean;
+  trust?: {
+    tools?: {
+      /** Tool names this plugin is trusted to invoke through the global egress gate. */
+      allow?: string[];
+    };
+  };
   hooks?: {
     /** Controls prompt mutation via before_prompt_build and prompt fields from legacy before_agent_start. */
     allowPromptInjection?: boolean;

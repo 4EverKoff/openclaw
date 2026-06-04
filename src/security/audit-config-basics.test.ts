@@ -104,7 +104,21 @@ describe("security audit config basics", () => {
     const passwordFile = writeEgressApprovalPasswordFile();
 
     const findings = collectGlobalEgressGateFindings({
-      cfg: { plugins: { enabled: true, allow: ["trusted-plugin"] } },
+      cfg: {
+        plugins: {
+          enabled: true,
+          allow: ["trusted-plugin"],
+          entries: {
+            "trusted-plugin": {
+              trust: {
+                tools: {
+                  allow: ["safe_lookup"],
+                },
+              },
+            },
+          },
+        },
+      },
       env: { OPENCLAW_EGRESS_APPROVAL_PASSWORD_FILE: passwordFile },
     });
 
@@ -114,5 +128,25 @@ describe("security audit config basics", () => {
     expect(findings.map((finding) => finding.checkId)).not.toContain(
       "global_egress_gate.plugins_allow_missing",
     );
+    expect(findings.map((finding) => finding.checkId)).not.toContain(
+      "global_egress_gate.plugin_tool_trust_missing",
+    );
+  });
+
+  it("warns when plugin ids are allowlisted without capability-level tool trust", () => {
+    const passwordFile = writeEgressApprovalPasswordFile();
+
+    const findings = collectGlobalEgressGateFindings({
+      cfg: { plugins: { enabled: true, allow: ["trusted-plugin"] } },
+      env: { OPENCLAW_EGRESS_APPROVAL_PASSWORD_FILE: passwordFile },
+    });
+
+    expect(
+      findings.some(
+        (finding) =>
+          finding.checkId === "global_egress_gate.plugin_tool_trust_missing" &&
+          finding.severity === "warn",
+      ),
+    ).toBe(true);
   });
 });

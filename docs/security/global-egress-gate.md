@@ -115,6 +115,7 @@ Current implementation:
 
 - agent `before_tool_call` enforcement blocks external hook sessions (`hook:gmail:*`, `hook:webhook:*`, `hook:*`) before plugin hooks or plugin approvals when they attempt an `external_send`, `sensitive_read`, or `dangerous_action` tool
 - plugin/MCP origin is carried into the hook; when `plugins.allow` is configured, plugin tools outside that allowlist become `untrusted_plugin`, and `bundle-mcp` tools outside that allowlist become `untrusted_mcp`
+- when `plugins.entries.<plugin>.trust.tools.allow` is configured for a plugin, only the listed plugin tools are trusted by the egress gate; other tools from the same loaded plugin remain `untrusted_plugin`
 - untrusted plugin/MCP tools are blocked before plugin hooks or plugin approvals, including unknown tool names that cannot be safely categorized
 - skill command tool dispatches (`command-dispatch: tool`) execute with origin `untrusted_skill`; sensitive and unknown tool names are blocked before plugin hooks or plugin approvals
 - skill command prompt rewrites (`/skill ...` and native skill commands without `command-dispatch: tool`) mark the resulting agent run with origin `untrusted_skill`, so model tool calls from that rewritten prompt are blocked by the same gate
@@ -123,10 +124,10 @@ Current implementation:
 - when no local TTY is available, password-required actions create a pending request under `~/.openclaw/security/egress-approval-requests/` and wait for local approval; timeout/deny/missing request blocks the action
 - pending requests can be approved or denied from a trusted local terminal with `openclaw security egress-approval approve [request-file]` or `openclaw security egress-approval deny [request-file]`
 - direct trusted sessions still flow through existing tool policy and approval mechanisms
-- `openclaw security audit` warns when the egress approval password hash is missing or plugin loading is enabled without `plugins.allow`
+- `openclaw security audit` warns when the egress approval password hash is missing, plugin loading is enabled without `plugins.allow`, or plugin ids are allowlisted without capability-level plugin tool trust
 
 Remaining implementation targets:
 
-- refine the allowlist from plugin id level toward capability-level trust where needed
+- add more granular trust categories beyond tool name if plugin manifests expose stable capability metadata
 
 Prompt rules are helpful but not sufficient against a compromised agent/plugin/tool description.

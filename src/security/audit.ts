@@ -517,6 +517,25 @@ export function collectGlobalEgressGateFindings(params: {
     });
   }
 
+  const entries = pluginsConfig?.entries;
+  const hasToolTrustAllowlist =
+    entries &&
+    Object.values(entries).some((entry) => {
+      const allow = entry?.trust?.tools?.allow;
+      return Array.isArray(allow) && allow.map((value) => String(value).trim()).some(Boolean);
+    });
+  if (pluginsEnabled && allow.length > 0 && !hasToolTrustAllowlist) {
+    findings.push({
+      checkId: "global_egress_gate.plugin_tool_trust_missing",
+      severity: "warn",
+      title: "Plugin tool trust allowlist is not configured for the egress gate",
+      detail:
+        "plugins.allow controls plugin loading and broad plugin trust fallback, but no plugins.entries.<plugin>.trust.tools.allow entries are configured for capability-level egress trust.",
+      remediation:
+        "Set plugins.entries.<plugin>.trust.tools.allow to the reviewed plugin tool names that may cross the global egress gate, and leave unreviewed plugin tools outside that allowlist.",
+    });
+  }
+
   return findings;
 }
 

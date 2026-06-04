@@ -25,6 +25,7 @@ import {
 import { requestEgressApprovalPassword } from "../security/egress-approval-password.js";
 import {
   decideGlobalEgressGate,
+  type GlobalEgressGateTrustedPluginToolAllowlist,
   type GlobalEgressGateOrigin,
 } from "../security/global-egress-gate.js";
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
@@ -47,6 +48,7 @@ export type HookContext = {
     pluginId?: string;
   };
   trustedPluginIds?: readonly string[];
+  trustedPluginToolAllowlists?: readonly GlobalEgressGateTrustedPluginToolAllowlist[];
   egressApprovalPasswordFile?: string;
 };
 
@@ -425,6 +427,7 @@ export async function runBeforeToolCallHook(args: {
     origin: args.ctx?.toolOrigin,
     toolOwner: args.ctx?.toolOwner,
     trustedPluginIds: args.ctx?.trustedPluginIds,
+    trustedPluginToolAllowlists: args.ctx?.trustedPluginToolAllowlists,
   });
   if (!globalEgressGateDecision.allowed) {
     return {

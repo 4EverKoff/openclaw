@@ -444,6 +444,42 @@ describe("plugins.entries.*.hooks", () => {
   });
 });
 
+describe("plugins.entries.*.trust", () => {
+  it("accepts plugin tool trust allowlists", () => {
+    const result = OpenClawSchema.safeParse({
+      plugins: {
+        entries: {
+          "voice-call": {
+            trust: {
+              tools: {
+                allow: ["message", "session_status"],
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid plugin tool trust allowlists", () => {
+    const result = OpenClawSchema.safeParse({
+      plugins: {
+        entries: {
+          "voice-call": {
+            trust: {
+              tools: {
+                allow: [123],
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe("plugins.entries.*.subagent", () => {
   it("accepts trusted subagent override settings", () => {
     const result = OpenClawSchema.safeParse({

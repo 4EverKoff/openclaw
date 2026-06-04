@@ -9,6 +9,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { generateSecureToken } from "../../infra/secure-random.js";
+import { resolveGlobalEgressGateTrustedPluginToolAllowlists } from "../../security/global-egress-gate.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import {
   normalizeOptionalLowercaseString,
@@ -307,6 +308,7 @@ export async function handleInlineActions(params: {
           sessionKey,
           toolOrigin: "untrusted_skill",
           trustedPluginIds: Array.isArray(cfg.plugins?.allow) ? cfg.plugins.allow : undefined,
+          trustedPluginToolAllowlists: resolveGlobalEgressGateTrustedPluginToolAllowlists(cfg),
         });
         const result = await guardedTool.execute?.(toolCallId, toolArgs);
         const text = extractTextFromToolResult(result) ?? "✅ Done.";
